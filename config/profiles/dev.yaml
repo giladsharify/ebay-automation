@@ -1,0 +1,8 @@
+base_url: https://www.ebay.com
+cart_url: https://cart.ebay.com
+browser: chromium
+headless: false
+slow_mo_ms: 0
+default_timeout_ms: 5000
+locale: en-US
+random_seed: 42

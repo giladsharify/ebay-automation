@@ -1,0 +1,5 @@
+playwright>=1.44
+pytest>=8.0
+allure-pytest>=2.13
+pyyaml>=6.0
+python-dotenv>=1.0
