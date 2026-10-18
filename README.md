@@ -29,6 +29,12 @@ python -m scripts.save_session        # a browser opens: complete any verificati
 This writes `artifacts/auth/state.json`, and every E2E test then loads it automatically.
 The file contains session cookies. It is ignored by Git and must not be shared.
 
+The step is optional: try without it first. Without a saved session, every run starts as a
+fresh guest with an empty cart.
+
+A saved session keeps the same eBay cart between runs. Because the scenario requires an empty
+starting cart, delete `artifacts/auth/state.json` (or empty the cart) before running again.
+
 ## Run
 ```bash
 pytest -m unit                        # fast unit tests, no browser
