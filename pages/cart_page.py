@@ -24,7 +24,7 @@ class CartPage(BasePage):
 
     def read_total(self) -> float:
         """Read the displayed subtotal, returning zero only for an explicitly empty cart."""
-        self.assert_not_blocked() # To check
+        self.assert_not_blocked()
         # Screenshot first, so a failure still leaves evidence of what the cart looked like
         self.screenshot("cart_page")
         try:
