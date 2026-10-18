@@ -132,8 +132,10 @@ scripts/     save_session.py: manual verification + session save
   - It contains the passing E2E run (`shoes` under 220, 5 items) plus the unit and component suites.
   - The 45 MB trace was left out to keep the repository small.
 - `junit-e2e.xml`, `junit-offline.xml`: JUnit reports.
-- `screenshots/`: each added item and the final cart (subtotal ILS 325.41 for 5 items,
-  against a threshold of 220 × 5).
+- `screenshots/`: each added item and the final cart.
+  - The run started with a fresh guest session and an empty cart.
+  - All 5 item ids were found in the cart.
+  - The subtotal was ILS 720.02, including shipping, against a threshold of 220 × 5 = 1100.
 
 ![Allure overview](docs/sample-run/allure-overview.png)
 ![Allure E2E test](docs/sample-run/allure-e2e-test.png)
