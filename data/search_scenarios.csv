@@ -1,0 +1,3 @@
+id,query,max_price,limit,budget_per_item
+shoes_under_220,shoes,220,5,
+backpack_under_50,backpack,50,3,

@@ -77,6 +77,10 @@ class SearchPage(BasePage):
         nxt = self.page.locator(f"xpath={self.NEXT_PAGE_XPATH}")
         if nxt.count() == 0 or nxt.first.get_attribute("aria-disabled") == "true":
             return False
+        previous_url = self.page.url
         nxt.first.click()
+        # cards from the old page still match the locator, so wait for the URL to change first
+        self.page.wait_for_url(lambda url: url != previous_url)
         self.page.wait_for_selector(f"xpath={self.CARDS_XPATH}")
+        self.log.info("Moved to next results page: %s", self.page.url)
         return True
