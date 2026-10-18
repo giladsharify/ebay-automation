@@ -29,6 +29,12 @@ python -m scripts.save_session        # a browser opens: complete any verificati
 This writes `artifacts/auth/state.json`, and every E2E test then loads it automatically.
 The file contains session cookies. It is ignored by Git and must not be shared.
 
+The step is optional: try without it first. Without a saved session, every run starts as a
+fresh guest with an empty cart.
+
+A saved session keeps the same eBay cart between runs. Because the scenario requires an empty
+starting cart, delete `artifacts/auth/state.json` (or empty the cart) before running again.
+
 ## Run
 ```bash
 pytest -m unit                        # fast unit tests, no browser
@@ -81,11 +87,25 @@ scripts/     save_session.py: manual verification + session save
   card's price is still checked client-side, because sponsored and range-priced cards can
   slip through the filter.
 - **XPath locators** match both the old (`s-item`) and new (`s-card`) eBay result-card markup.
-- **Paging:** follows "Next" until `limit` items are collected or the pages run out. Waits
-  for the URL to change before reading cards, so cards from the previous page are never
-  re-read. Returns a partial list, or an empty one, when fewer items exist.
-- **Price parsing** ([utils/price_parser.py](utils/price_parser.py)): currency symbols and
-  codes, US and EU separators, and ranges such as `$20.00 to $30.00` (the lowest price is used).
+- **Paging:** follows "Next" until `limit` items are collected or the pages run out. Returns
+  a partial list, or an empty one, when fewer items exist.
+  - Waits for the URL to change before reading cards, so cards from the previous page are
+    never re-read.
+  - If the URL doesn't change, it checks whether the results changed.
+  - Tracks visited pages, so a pager that loops back stops instead of running forever.
+- **One currency end to end:**
+  - A results page can mix currencies, for example `ILS 58.80` next to `$20.00`.
+  - The comparison currency is `CURRENCY` when it's set. Otherwise it's the currency most
+    cards on the first page are shown in.
+  - Cards in any other currency are skipped.
+  - The cart total must be in the same currency, or the assertion fails instead of
+    comparing incomparable numbers.
+- **Price parsing** ([utils/price_parser.py](utils/price_parser.py)): returns `Money`
+  (a `Decimal` amount plus an ISO currency code).
+  - Recognizes symbols and codes such as `US $`, `C $`, `ILS`, `€`, and `£`, plus US and EU separators.
+  - Amounts with a currency marker win over bare numbers, so `2 for $19.99`,
+    `save 20% $90.00`, and `$59.99 + $10 shipping` all parse to the item price.
+  - Only an explicit `X to Y` counts as a range, and its lowest price is used.
 - **Variants:** random choice (seeded via `random_seed`, so runs are reproducible) among
   available options in both native `<select>` and custom listbox dropdowns. Placeholder,
   disabled, and out-of-stock options are skipped.
@@ -102,7 +122,8 @@ scripts/     save_session.py: manual verification + session save
 - Profiles: `TEST_ENV=dev|ci` selects `config/profiles/<env>.yaml` (URLs, browser, headless,
   timeouts, locale, seed). Any field can be overridden with an environment variable or `.env`:
   `BASE_URL`, `CART_URL`, `BROWSER`, `HEADLESS`, `SLOW_MO_MS`, `DEFAULT_TIMEOUT_MS`,
-  `LOCALE`, `RANDOM_SEED`, `EBAY_USERNAME`, `EBAY_PASSWORD`.
+  `LOCALE`, `RANDOM_SEED`, `CURRENCY` (for example `ILS` or `USD`; when it's unset, the currency
+  is detected from the results), `EBAY_USERNAME`, `EBAY_PASSWORD`.
 
 ## Reports and evidence
 - **Allure:** steps for every page action, screenshots for each added item and the cart,
@@ -117,8 +138,10 @@ scripts/     save_session.py: manual verification + session save
   - It contains the passing E2E run (`shoes` under 220, 5 items) plus the unit and component suites.
   - The 45 MB trace was left out to keep the repository small.
 - `junit-e2e.xml`, `junit-offline.xml`: JUnit reports.
-- `screenshots/`: each added item and the final cart (subtotal ILS 325.41 for 5 items,
-  against a threshold of 220 × 5).
+- `screenshots/`: each added item and the final cart.
+  - The run started with a fresh guest session and an empty cart.
+  - All 5 item ids were found in the cart.
+  - The subtotal was ILS 720.02, including shipping, against a threshold of 220 × 5 = 1100.
 
 ![Allure overview](docs/sample-run/allure-overview.png)
 ![Allure E2E test](docs/sample-run/allure-e2e-test.png)
@@ -126,18 +149,26 @@ scripts/     save_session.py: manual verification + session save
 ## Assumptions and limitations
 - **Login:** optional. Without credentials, or when sign-in is blocked, the flow continues as guest.
 - **Currency:**
-  - `max_price` and `budget_per_item` are plain numbers with no currency conversion.
-  - The search filter uses the site's listing currency, while the cart shows the currency of
-    the ship-to location. In the sample run that was Israel, so the cart showed ILS.
-  - For a strict comparison, run with a ship-to location whose currency matches the budget.
+  - `max_price` and `budget_per_item` are amounts in the comparison currency (see Robustness).
+    There is no exchange-rate conversion.
+  - eBay shows prices in the currency of the ship-to location. In the sample run that was
+    Israel, so search results and cart were both in ILS.
+  - eBay's own URL price filter (`_udhi`) only narrows the results. The real price check is
+    the per-card comparison in the chosen currency.
+- **Cart must start empty:** the assertion checks the cart's whole displayed total, as the
+  exercise requires.
+  - So the flow verifies the cart is empty before adding anything, and fails with a clear
+    message if it isn't.
+  - It never deletes items itself. Empty the cart, or use a fresh session, before a run.
+- **Cart verification:**
+  - Every added item id must be present in the cart.
+  - The cart's "Items (N)" count must equal the number of added items.
+  - The total must be ≤ `budget_per_item × items_count`.
 - **Subtotal** is read exactly as the site displays it, so it can include shipping.
-- **Existing cart contents:** before adding items, the flow records the current subtotal.
-  The assertion checks only the increase from this run (`after - before <= budget × count`)
-  and never deletes the user's items. Avoid changing the cart concurrently during a run.
 - **Quantity** is left at 1. A random quantity above 1 would break the invariant that every
   item costs at most `budget_per_item`, which the cart assertion depends on.
-- **Negative case:** the assertion failing when the budget is exceeded is covered in
-  [tests/unit/test_cart_baseline.py](tests/unit/test_cart_baseline.py).
+- **Negative cases:** budget exceeded, currency mismatch, missing item, wrong count, and
+  non-empty starting cart are covered in [tests/unit/test_cart_assertions.py](tests/unit/test_cart_assertions.py).
 - **Live-site dependence:** inventory, prices, and DOM can change between runs, so live E2E
   is not part of CI. CI runs the deterministic unit and component suites
   ([.github/workflows/tests.yml](.github/workflows/tests.yml)).

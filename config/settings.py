@@ -26,6 +26,7 @@ class Settings:
     artifacts_dir: Path
     username: str | None = None
     password: str | None = None
+    currency: str | None = None  # None = use the currency the search results are shown in
 
 
 def _as_bool(value: object) -> bool:
@@ -55,4 +56,5 @@ def load_settings() -> Settings:
         artifacts_dir=ROOT / "artifacts",
         username=os.getenv("EBAY_USERNAME"),
         password=os.getenv("EBAY_PASSWORD"),
+        currency=(os.getenv("CURRENCY") or cfg.get("currency") or "").upper() or None,
     )

@@ -23,11 +23,16 @@ def _results_page(cards: list[tuple[str, str]], next_href: str | None) -> str:
 
 
 PAGES = {
+    # page 1 is mostly ILS; the "$" card is in another currency and must be skipped
     "/p1": _results_page(
-        [("1", "$10.00"), ("2", "$500.00"), ("3", "ILS 99.90"), ("1", "$10.00")], "/p2"
+        [("1", "ILS 10.00"), ("2", "ILS 500.00"), ("3", "$5.00"), ("1", "ILS 10.00"), ("8", "ILS 30.00")],
+        "/p2",
     ),
-    "/p2": _results_page([("4", "$20.00 to $300.00"), ("5", "$150.00"), ("6", "$5.00")], "/p3"),
-    "/p3": _results_page([("7", "$1.00")], None),
+    "/p2": _results_page([("4", "ILS 20.00 to ILS 300.00"), ("5", "ILS 150.00"), ("6", "ILS 5.00")], "/p3"),
+    "/p3": _results_page([("7", "ILS 1.00")], None),
+    # a broken pager whose Next link points back to the first page
+    "/loop1": _results_page([("9", "ILS 1.00")], "/loop2"),
+    "/loop2": _results_page([("10", "ILS 1.00")], "/loop1"),
 }
 
 
@@ -48,18 +53,29 @@ def browser_page():
         browser.close()
 
 
-def _search_page(page) -> SearchPage:
-    """Open page 1 and wrap it in the real SearchPage object."""
-    page.goto(f"{BASE}/p1")
-    return SearchPage(page, MagicMock())
+def _search_page(page, start: str = "/p1", currency: str | None = None) -> SearchPage:
+    """Open a start page and wrap it in the real SearchPage object."""
+    page.goto(f"{BASE}{start}")
+    return SearchPage(page, MagicMock(currency=currency))
 
 
 def test_collects_across_pages_until_limit(browser_page):
-    """Skips expensive and duplicate cards, strips query strings, and follows Next."""
-    urls = _search_page(browser_page).collect_item_urls(max_price=200, limit=5)
+    """Skips expensive, duplicate and other-currency cards, strips query strings, follows Next."""
+    search = _search_page(browser_page)
 
-    assert urls == [f"{BASE}/itm/{i}" for i in ("1", "3", "4", "5", "6")]
+    urls = search.collect_item_urls(max_price=200, limit=5)
+
+    assert urls == [f"{BASE}/itm/{i}" for i in ("1", "8", "4", "5", "6")]
+    assert search.result_currency == "ILS"
     assert browser_page.url.endswith("/p2")
+
+
+def test_configured_currency_overrides_page_majority(browser_page):
+    """Uses the configured currency when one is set."""
+    search = _search_page(browser_page, currency="USD")
+
+    assert search.collect_item_urls(max_price=200, limit=5) == [f"{BASE}/itm/3"]
+    assert search.result_currency == "USD"
 
 
 def test_returns_partial_result_when_pages_run_out(browser_page):
@@ -73,3 +89,10 @@ def test_returns_partial_result_when_pages_run_out(browser_page):
 def test_returns_empty_list_when_nothing_matches(browser_page):
     """Zero matching items is a valid result."""
     assert _search_page(browser_page).collect_item_urls(max_price=0.5, limit=5) == []
+
+
+def test_stops_when_next_leads_back_to_a_visited_page(browser_page):
+    """A pager that loops does not cause an endless loop."""
+    urls = _search_page(browser_page, start="/loop1").collect_item_urls(max_price=200, limit=5)
+
+    assert urls == [f"{BASE}/itm/9", f"{BASE}/itm/10"]
