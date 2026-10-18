@@ -6,7 +6,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 import allure
 
-from pages.base_page import BasePage, BotChallengeError
+from pages.base_page import BasePage
 from utils.price_parser import parse_price
 
 
@@ -30,10 +30,7 @@ class SearchPage(BasePage):
 
         self.goto(url)
         self._wait_for_browser_check()
-        try:
-            self.assert_not_blocked()
-        except BotChallengeError:
-            raise
+        self.assert_not_blocked()
 
         try:
             self.page.wait_for_selector(
