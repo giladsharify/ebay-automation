@@ -27,6 +27,8 @@ class Settings:
     username: str | None = None
     password: str | None = None
     currency: str | None = None  # None = use the currency the search results are shown in
+    max_pages: int = 10  # hard cap on result pages read per search
+    search_timeout_s: float = 120.0  # time budget for collecting search results
 
 
 def _as_bool(value: object) -> bool:
@@ -54,7 +56,13 @@ def load_settings() -> Settings:
         locale=os.getenv("LOCALE", cfg["locale"]),
         random_seed=int(os.getenv("RANDOM_SEED", cfg["random_seed"])),
         artifacts_dir=ROOT / "artifacts",
+        # SECURITY DISCLAIMER: credentials are read from the environment / a local .env file.
+        # Keeping a test account's username and password in .env (or hardcoding them) is
+        # acceptable ONLY for this practice repository. Do not mirror this in production:
+        # use a secrets manager or CI secrets, and never commit credentials to Git.
         username=os.getenv("EBAY_USERNAME"),
         password=os.getenv("EBAY_PASSWORD"),
         currency=(os.getenv("CURRENCY") or cfg.get("currency") or "").upper() or None,
+        max_pages=int(os.getenv("MAX_PAGES", cfg.get("max_pages", 10))),
+        search_timeout_s=float(os.getenv("SEARCH_TIMEOUT_S", cfg.get("search_timeout_s", 120))),
     )

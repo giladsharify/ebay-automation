@@ -1,6 +1,7 @@
 """Search results page: search, price filter, card parsing and paging."""
 from __future__ import annotations
 
+import time
 from collections import Counter
 from decimal import Decimal
 from urllib.parse import quote_plus, urljoin
@@ -78,32 +79,61 @@ class SearchPage(BasePage):
 
         Only cards in a single currency are compared with max_price; the currency used
         is kept in `result_currency` so the cart can be checked in the same currency.
+
+        Paging always terminates. It stops on the first of: `limit` reached, no enabled
+        Next link, `settings.max_pages` pages read, `settings.search_timeout_s` elapsed,
+        a page with no cards that were not already seen, or a page that was visited before.
         """
         urls: list[str] = []
         seen: set[str] = set()
         visited_pages: set[str] = set()
         ceiling = Decimal(str(max_price))
+        deadline = time.monotonic() + self.settings.search_timeout_s
         self.result_currency = None
+        pages_read = 0
         while len(urls) < limit:
             visited_pages.add(self.page.url)
+            pages_read += 1
             cards = self._read_cards()
             if self.result_currency is None:
                 self.result_currency = self._pick_currency(cards)
                 self.log.info("Comparing prices in currency: %s", self.result_currency)
+            new_cards = 0
             for href, money in cards:
+                if href in seen:
+                    continue
+                seen.add(href)
+                new_cards += 1
                 if money.currency != self.result_currency:
                     self.log.info("Skipping %s: price in %s, not %s", href, money.currency, self.result_currency)
                     continue
-                if money.amount > ceiling or href in seen:
+                if money.amount > ceiling:
                     continue
-                seen.add(href)
                 urls.append(href)
                 if len(urls) >= limit:
                     break
-            if len(urls) >= limit or not self._go_next_page(visited_pages):
+            if len(urls) >= limit or self._should_stop_paging(pages_read, new_cards, deadline):
                 break
-        self.log.info("Collected %d item(s)", len(urls))
+            if not self._go_next_page(visited_pages):
+                break
+        self.log.info("Collected %d item(s) from %d page(s)", len(urls), pages_read)
         return urls
+
+    def _should_stop_paging(self, pages_read: int, new_cards: int, deadline: float) -> bool:
+        """Apply the hard paging limits that guarantee collection terminates."""
+        if new_cards == 0:
+            # an endless/infinite-scroll style pager that keeps serving the same items
+            self.log.warning("Page %d added no new items; stopping paging.", pages_read)
+            return True
+        if pages_read >= self.settings.max_pages:
+            self.log.warning("Reached max_pages=%d; stopping paging.", self.settings.max_pages)
+            return True
+        if time.monotonic() >= deadline:
+            self.log.warning(
+                "Search exceeded %ss time budget; stopping paging.", self.settings.search_timeout_s
+            )
+            return True
+        return False
 
     def _first_card_href(self) -> str | None:
         """Return the link of the first result card, used to detect that results changed."""
@@ -119,11 +149,12 @@ class SearchPage(BasePage):
         if href and urljoin(self.page.url, href) in visited_pages:
             self.log.warning("Next link points to an already visited page; stopping paging.")
             return False
+        timeout = self.settings.default_timeout_ms
         previous_url, previous_first = self.page.url, self._first_card_href()
-        nxt.first.click()
+        nxt.first.click(timeout=timeout)
         # cards from the old page still match the locator, so wait for the URL to change first
         try:
-            self.page.wait_for_url(lambda url: url != previous_url)
+            self.page.wait_for_url(lambda url: url != previous_url, timeout=timeout)
         except PlaywrightTimeout:
             if self._first_card_href() == previous_first:
                 self.log.warning("Clicking Next changed neither the URL nor the results; stopping paging.")
@@ -131,6 +162,10 @@ class SearchPage(BasePage):
         if self.page.url != previous_url and self.page.url in visited_pages:
             self.log.warning("Next led back to an already visited page; stopping paging.")
             return False
-        self.page.wait_for_selector(f"xpath={self.CARDS_XPATH}")
+        try:
+            self.page.wait_for_selector(f"xpath={self.CARDS_XPATH}", timeout=timeout)
+        except PlaywrightTimeout:
+            self.log.warning("Next page showed no result cards within %d ms; stopping paging.", timeout)
+            return False
         self.log.info("Moved to next results page: %s", self.page.url)
         return True

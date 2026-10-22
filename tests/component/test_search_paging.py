@@ -33,7 +33,25 @@ PAGES = {
     # a broken pager whose Next link points back to the first page
     "/loop1": _results_page([("9", "ILS 1.00")], "/loop2"),
     "/loop2": _results_page([("10", "ILS 1.00")], "/loop1"),
+    # endless pager: every page has a Next link, but from page 2 on it repeats the same items
+    "/same1": _results_page([("11", "ILS 1.00")], "/same2"),
+    "/same2": _results_page([("11", "ILS 1.00")], "/same3"),
+    "/same3": _results_page([("11", "ILS 1.00")], "/same4"),
+    # Next leads to a page that never shows result cards
+    "/broken1": _results_page([("12", "ILS 1.00")], "/empty"),
+    "/empty": "<html><body><p>Something went wrong</p></body></html>",
 }
+
+# an unbounded pager: /endless/N always links to /endless/N+1 with one new item
+ENDLESS_PREFIX = "/endless/"
+
+
+def _page_for(path: str) -> str:
+    """Return fixed pages by path, and generate the unbounded /endless/N pages."""
+    if path.startswith(ENDLESS_PREFIX):
+        n = int(path.removeprefix(ENDLESS_PREFIX))
+        return _results_page([(f"e{n}", "ILS 1.00")], f"{ENDLESS_PREFIX}{n + 1}")
+    return PAGES[path]
 
 
 @pytest.fixture(scope="module")
@@ -46,17 +64,22 @@ def browser_page():
         page.route(
             f"{BASE}/**",
             lambda route: route.fulfill(
-                content_type="text/html", body=PAGES[route.request.url.removeprefix(BASE)]
+                content_type="text/html", body=_page_for(route.request.url.removeprefix(BASE))
             ),
         )
         yield page
         browser.close()
 
 
-def _search_page(page, start: str = "/p1", currency: str | None = None) -> SearchPage:
+def _search_page(
+    page, start: str = "/p1", currency: str | None = None, max_pages: int = 10, timeout_s: float = 60
+) -> SearchPage:
     """Open a start page and wrap it in the real SearchPage object."""
     page.goto(f"{BASE}{start}")
-    return SearchPage(page, MagicMock(currency=currency))
+    settings = MagicMock(
+        currency=currency, max_pages=max_pages, search_timeout_s=timeout_s, default_timeout_ms=2000
+    )
+    return SearchPage(page, settings)
 
 
 def test_collects_across_pages_until_limit(browser_page):
@@ -96,3 +119,35 @@ def test_stops_when_next_leads_back_to_a_visited_page(browser_page):
     urls = _search_page(browser_page, start="/loop1").collect_item_urls(max_price=200, limit=5)
 
     assert urls == [f"{BASE}/itm/9", f"{BASE}/itm/10"]
+
+
+def test_stops_at_max_pages_on_an_unbounded_pager(browser_page):
+    """A pager that never ends is cut off at max_pages."""
+    search = _search_page(browser_page, start=f"{ENDLESS_PREFIX}1", max_pages=3)
+
+    urls = search.collect_item_urls(max_price=200, limit=50)
+
+    assert urls == [f"{BASE}/itm/e{n}" for n in (1, 2, 3)]
+    assert browser_page.url.endswith(f"{ENDLESS_PREFIX}3")
+
+
+def test_stops_when_time_budget_is_exhausted(browser_page):
+    """A zero time budget allows reading only the first page."""
+    search = _search_page(browser_page, start=f"{ENDLESS_PREFIX}1", timeout_s=0)
+
+    assert search.collect_item_urls(max_price=200, limit=50) == [f"{BASE}/itm/e1"]
+
+
+def test_stops_when_a_page_adds_no_new_items(browser_page):
+    """New URLs that keep serving already-seen items (infinite-scroll style) stop paging."""
+    urls = _search_page(browser_page, start="/same1").collect_item_urls(max_price=200, limit=5)
+
+    assert urls == [f"{BASE}/itm/11"]
+    assert browser_page.url.endswith("/same2")
+
+
+def test_stops_gracefully_when_next_page_has_no_results(browser_page):
+    """A next page without result cards ends paging instead of raising a timeout."""
+    urls = _search_page(browser_page, start="/broken1").collect_item_urls(max_price=200, limit=5)
+
+    assert urls == [f"{BASE}/itm/12"]

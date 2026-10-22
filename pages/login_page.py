@@ -8,12 +8,17 @@ from pages.base_page import BasePage
 
 
 class LoginPage(BasePage):
+    # CSS id selectors: eBay's sign-in form exposes stable, unique ids, and an id lookup is
+    # the fastest and most readable locator; XPath (//*[@id='...']) would add nothing.
     USERNAME_INPUT = "#userid"
     CONTINUE_BUTTON = "#signin-continue-btn"
     PASSWORD_INPUT = "#pass"
     SIGN_IN_BUTTON = "#sgnBt"
     STEP_TIMEOUT_MS = 8000
 
+    # SECURITY DISCLAIMER: this page receives plain-text credentials from Settings. That is
+    # acceptable ONLY for this practice repository with a dedicated test account; production
+    # code must source credentials from a secrets manager and never log or commit them.
     @allure.step("Login")
     def login(self, username: str | None, password: str | None) -> bool:
         """Return True if logged in, False if continuing as guest."""
