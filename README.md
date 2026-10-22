@@ -39,9 +39,12 @@ starting cart, delete `artifacts/auth/state.json` (or empty the cart) before run
 ```bash
 pytest -m unit                        # fast unit tests, no browser
 pytest -m component                   # offline browser tests: XPath locators + paging on local HTML
-pytest -m e2e -k shoes -s             # live E2E against www.ebay.com (headed)
+pytest -m e2e -s                      # live E2E against www.ebay.com: every scenario in the data file
+pytest -m e2e -k <scenario_id> -s     # a single scenario, by its `id` from data/search_scenarios.json
 TEST_ENV=ci pytest -m "unit or component"   # what CI runs
 ```
+No product is hardcoded in the code: queries, price limits and budgets come only from the
+scenario file, which `SCENARIOS_FILE` can point elsewhere.
 
 Reports:
 ```bash
@@ -92,7 +95,17 @@ scripts/     save_session.py: manual verification + session save
   - Waits for the URL to change before reading cards, so cards from the previous page are
     never re-read.
   - If the URL doesn't change, it checks whether the results changed.
-  - Tracks visited pages, so a pager that loops back stops instead of running forever.
+  - **Termination is guaranteed.** Paging stops on the first of these:
+    - `limit` items were collected.
+    - There is no enabled Next link.
+    - `max_pages` pages were read (profile or `MAX_PAGES`; `dev` uses 5, `ci` uses 10).
+    - The `search_timeout_s` time budget ran out (profile or `SEARCH_TIMEOUT_S`).
+    - A page added no item that wasn't already seen. This covers endless or
+      infinite-scroll-style pagers that keep serving the same items.
+    - Next points to, or leads back to, a page that was already visited.
+    - The next page shows no result cards within `default_timeout_ms`. This ends paging
+      cleanly instead of hanging or raising.
+  - Each rule has an offline test in [tests/component/test_search_paging.py](tests/component/test_search_paging.py).
 - **One currency end to end:**
   - A results page can mix currencies, for example `ILS 58.80` next to `$20.00`.
   - The comparison currency is `CURRENCY` when it's set. Otherwise it's the currency most
@@ -114,6 +127,18 @@ scripts/     save_session.py: manual verification + session save
 - **Access challenges** (CAPTCHA) are detected, screenshotted, and reported as an explicit
   skip. They are never bypassed.
 
+## Locator strategy
+- **XPath** for the search results (cards, prices, links, Next). The exercise requires it,
+  and the `or` conditions match both of eBay's result-card markups.
+- **User-facing locators** (`get_by_text`, `get_by_role`, `get_by_placeholder`) where visible
+  text or roles are the stable contract, such as "Added to cart", "Subtotal", or the search button.
+- **CSS** where it is shorter or the only option. Every CSS locator has an inline comment
+  explaining the choice. The reasons:
+  - Stable element ids, as on the sign-in form.
+  - A single ARIA attribute (`aria-haspopup`).
+  - Playwright-only pseudo-classes that have no XPath equivalent (`:visible`, `:has-text()`).
+  - Selectors that also run inside the browser through `document.querySelector`, which accepts CSS only.
+
 ## Data-driven and configuration
 - Scenarios come from `data/search_scenarios.json`. Any JSON/YAML/CSV file in `data/` can be
   used instead: `SCENARIOS_FILE=search_scenarios.csv pytest -m e2e`.
@@ -123,7 +148,15 @@ scripts/     save_session.py: manual verification + session save
   timeouts, locale, seed). Any field can be overridden with an environment variable or `.env`:
   `BASE_URL`, `CART_URL`, `BROWSER`, `HEADLESS`, `SLOW_MO_MS`, `DEFAULT_TIMEOUT_MS`,
   `LOCALE`, `RANDOM_SEED`, `CURRENCY` (for example `ILS` or `USD`; when it's unset, the currency
-  is detected from the results), `EBAY_USERNAME`, `EBAY_PASSWORD`.
+  is detected from the results), `MAX_PAGES`, `SEARCH_TIMEOUT_S`, `EBAY_USERNAME`, `EBAY_PASSWORD`.
+
+## Security disclaimer (credentials)
+> Credentials are read from environment variables or a local, Git-ignored `.env` file.
+> Keeping a test account's username and password in plain text like this, or hardcoding them,
+> is acceptable **only for this practice repository**. It must not be mirrored in production.
+> There, credentials belong in a secrets manager or CI secrets, are never committed, and are
+> never logged. The same disclaimer appears in [config/settings.py](config/settings.py),
+> [pages/login_page.py](pages/login_page.py), and [.env.example](.env.example).
 
 ## Reports and evidence
 - **Allure:** steps for every page action, screenshots for each added item and the cart,

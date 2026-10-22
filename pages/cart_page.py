@@ -19,7 +19,9 @@ def item_id_from_url(url: str) -> str | None:
 
 class CartPage(BasePage):
     SUBTOTAL_KEYWORD = "subtotal"
-    # cart line titles only, so the "recommended items" strip is not counted
+    # CSS: class + descendant + substring attribute match in one short selector. Scoped to
+    # cart line titles only, so the "recommended items" strip is not counted. The same
+    # string also runs inside evaluate_all, where a CSS selector is the natural fit.
     ITEM_LINKS = ".item-title a[href*='/itm/']"
     ITEM_ID_PATTERN = re.compile(r"/itm/(?:[^/?#]+/)?(\d+)")
     ITEMS_COUNT_PATTERN = re.compile(r"^items\s*\((\d+)\)", re.IGNORECASE)
@@ -37,6 +39,7 @@ class CartPage(BasePage):
 
     def _lines(self) -> list[str]:
         """Return the non-empty visible text lines of the page."""
+        # CSS "body": the whole visible text is needed; a tag selector is the simplest form
         return [ln.strip() for ln in self.page.locator("body").inner_text().splitlines() if ln.strip()]
 
     def read_total(self) -> Money:
@@ -49,7 +52,7 @@ class CartPage(BasePage):
                 state="visible"
             )
         except PlaywrightTimeout:
-            body_text = self.page.locator("body").inner_text().lower()
+            body_text = self.page.locator("body").inner_text().lower()  # CSS tag: whole page text
             if any(phrase in body_text for phrase in self.EMPTY_CART_PHRASES):
                 return Money(Decimal("0"), None)
             raise AssertionError("Cart page showed neither a subtotal nor an empty-cart message")

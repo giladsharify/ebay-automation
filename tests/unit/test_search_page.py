@@ -6,6 +6,10 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from pages.base_page import BotChallengeError
 from pages.search_page import SearchPage
 
+# arbitrary search inputs: the page/flow logic must not depend on any specific product
+QUERY = "sample query"
+MAX_PRICE = 220
+
 
 @pytest.mark.unit
 def test_search_waits_for_browser_check_after_navigation():
@@ -20,7 +24,7 @@ def test_search_waits_for_browser_check_after_navigation():
     search.screenshot = lambda name: None
     page.wait_for_selector.side_effect = lambda *args, **kwargs: events.append("results")
 
-    search.search("shoes", max_price=220)
+    search.search(QUERY, max_price=MAX_PRICE)
 
     assert events == ["goto", "browser_check", "not_blocked", "results"]
 
@@ -38,7 +42,7 @@ def test_search_accepts_explicit_no_results_page():
     search.assert_not_blocked = lambda: None
     search.screenshot = lambda name: None
 
-    search.search("shoes", max_price=220)
+    search.search(QUERY, max_price=MAX_PRICE)
 
     page.get_by_text.assert_called_with("No exact matches found", exact=False)
 
@@ -56,4 +60,4 @@ def test_search_propagates_access_challenge_without_retrying_homepage():
     )
 
     with pytest.raises(BotChallengeError, match="access challenge"):
-        search.search("shoes", max_price=220)
+        search.search(QUERY, max_price=MAX_PRICE)

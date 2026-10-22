@@ -76,12 +76,14 @@ class BasePage:
     def _is_access_blocked(self) -> bool:
         """Return whether the current page appears to be an eBay access challenge."""
         url = self.page.url.lower()
-        body = self.page.locator("body").inner_text().lower()
+        body = self.page.locator("body").inner_text().lower()  # CSS tag: whole page text
         has_challenge_text = any(phrase in body for phrase in self.BLOCK_PHRASES)
         has_challenge_url = any(key in url for key in ("captcha", "challenge", "splashui"))
         if has_challenge_text or has_challenge_url:
             return True
         has_homepage_challenge = self.page.locator(
+            # CSS: Playwright's :has-text() matches the label on either a link or a button in
+            # one selector; the XPath equivalent needs normalize-space() on two node types.
             "a:has-text('Go to homepage'), button:has-text('Go to homepage')"
         ).count() > 0
         return has_homepage_challenge

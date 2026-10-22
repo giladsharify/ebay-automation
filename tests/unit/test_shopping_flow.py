@@ -2,6 +2,10 @@ import pytest
 
 from flows.shopping_flow import ShoppingFlow
 
+# arbitrary search inputs: the page/flow logic must not depend on any specific product
+QUERY = "sample query"
+MAX_PRICE = 220
+
 
 class SearchPageStub:
     def __init__(self):
@@ -25,8 +29,8 @@ def test_search_flow_applies_price_filter_and_limit():
     flow = ShoppingFlow.__new__(ShoppingFlow)
     flow.search_page = SearchPageStub()
 
-    urls = flow.search_items_by_name_under_price("shoes", 220, limit=5)
+    urls = flow.search_items_by_name_under_price(QUERY, MAX_PRICE, limit=5)
 
-    assert flow.search_page.search_args == ("shoes", 220)
-    assert flow.search_page.collect_args == (220, 5)
+    assert flow.search_page.search_args == (QUERY, MAX_PRICE)
+    assert flow.search_page.collect_args == (MAX_PRICE, 5)
     assert urls == ["https://example.test/item/1"]

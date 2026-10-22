@@ -11,14 +11,24 @@ from pages.base_page import BasePage
 
 
 class ItemPage(BasePage):
+    # CSS: attribute prefix match (^=) plus a comma "OR" covers both variant-dropdown
+    # generations in one short selector; XPath would need starts-with() and a union.
     NATIVE_SELECTS = "select[id^='msku-sel'], select.x-msku__select-box"
+    # CSS: a single ARIA attribute is the stable contract for custom dropdowns
+    # (class names here are generated); there is no DOM hierarchy that would need XPath.
     LISTBOX_BUTTONS = "button[aria-haspopup='listbox']"
+    # CSS: Playwright's :visible pseudo-class keeps only the open popup's options;
+    # it has no XPath equivalent.
     LISTBOX_OPTIONS = "[role='option']:visible"
     ADD_TO_CART_BUTTON = (
         "xpath=//span[normalize-space()='Add to cart']"
         "/ancestor::*[self::a or self::button][1]"
     )
+    # CSS: same selector is reused verbatim in the browser via document.querySelector
+    # (_wait_for_cart_count_increase), which only accepts CSS.
     CART_COUNT_SELECTOR = "a.gh-flyout__target[href*='cart']"
+    # CSS: a single class lookup; XPath would need contains(@class, ...) and risks
+    # partial matches such as "x-msku-evo-other".
     VARIANT_PANEL = ".x-msku-evo"
     ADDED_CONFIRMATION = re.compile(r"added to (your )?cart", re.IGNORECASE)
     SELECT_ERROR = re.compile(r"please (select|choose)", re.IGNORECASE)
@@ -42,6 +52,7 @@ class ItemPage(BasePage):
             select = selects.nth(i)
             if not select.is_visible():
                 continue
+            # CSS: :not([disabled]) filters options inside an already-scoped <select>
             values = select.locator("option:not([disabled])").evaluate_all(
                 "els => els.map(e => e.value)"
             )
@@ -121,6 +132,7 @@ class ItemPage(BasePage):
         try:
             self.page.wait_for_function(
                 """(previousCount) => {
+                    // must stay in sync with CART_COUNT_SELECTOR (querySelector accepts CSS only)
                     const cartLink = document.querySelector("a.gh-flyout__target[href*='cart']");
                     const label = cartLink?.getAttribute("aria-label") || "";
                     const match = label.match(/contains\\s+(\\d+)\\s+items?/i);
